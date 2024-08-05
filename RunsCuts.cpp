@@ -8,10 +8,10 @@
 void processFilesInDirectory(const char* directoryPath, std::map<int, int>& runsDict) {
     // Create a canvas and a 2D histogram
     TCanvas* canvas = new TCanvas("canvas", "Momentum vs. Charge", 800, 600);
-    TH2D* hist = new TH2D("momentum_vs_charge", "Momentum vs. Charge; Momentum(GeV); Charge", 48, -1.2, 1.2, 200, 0, 1);
+    TH2D* hist = new TH2D("momentum_vs_charge", "Momentum vs. Charge; Momentum(GeV); Charge", 48, -1.2, 1.2, 50, 0, 1);
 
     TCanvas* canvas2 = new TCanvas("canvas2", "Momentum vs TOF", 800,600);
-    TH2D* hist2 = new TH2D("momentum_vs_TOF", "Momentum vs TOF using TOF11; Momentum(GeV); TOF(ns)", 48, -1.2, 1.2, 50, 10, 15);
+    TH2D* hist2 = new TH2D("momentum_vs_TOF", "Momentum vs TOF using TOF11; Momentum(GeV); TOF(ns)", 48, -1.2, 1.2, 100, 10, 15);
 
     // Open the directory
     TSystemDirectory dir(directoryPath, directoryPath);
@@ -122,19 +122,24 @@ void processFilesInDirectory(const char* directoryPath, std::map<int, int>& runs
             delete rootFile;
         }
     }
-    Int_t nBinsX = 48;
-    Int_t nBinsY1 = 50, nBinsY2 = 200;
+    Int_t nbinsX = 48;
+    Int_t nbinsY1 = 50, nbinsY2 = 200;
 
     for (int binX = 1; binX <= nbinsX; ++binX) {
-        double entriesInXBin = hist->Integral(binX, binX, 1, nbinsY);
+        double entriesInXBin = hist->Integral(binX, binX, 1, nbinsY1);
         if (entriesInXBin > 0) {
             for (int binY = 1; binY <= nbinsY1; ++binY) {
                 double content = hist->GetBinContent(binX, binY);
                 hist->SetBinContent(binX, binY, content / entriesInXBin);
             }
-            for(int binY = 1; binY <= nBinsY2; ++binY){
-                double content = hist->GetBinContent(binX, binY);
-                hist2->SetBinContent(binX, binY, content / entriesInXBin);
+        }
+    }
+    for (int binX = 1; binX <= nbinsX; ++binX){
+        double entriesInXBin2 = hist2->Integral(binX,binX,1,nbinsY2);
+        if (entriesInXBin2 > 0){
+            for(int binY = 1; binY <= nbinsY2; ++binY){
+                double content = hist2->GetBinContent(binX, binY);
+                hist2->SetBinContent(binX, binY, content / entriesInXBin2);
             }
         }
     }

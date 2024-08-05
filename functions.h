@@ -218,13 +218,13 @@ void GenerateHistograms(TGraph* graph, TGraph* graph_OP, TH2D*& pureff_2Dhist_Bg
     double finalb_max = 0.01 + (biny_max - 1) * 0.34 / 49;
     double finalm_min = -1.0 + (binx_min - 1) * 0.999 / (numPoints - 1);
     double finalb_min = 0.01 + (biny_min - 1) * 0.34 / 49;
-    cout << "The best fit value for the signal(non-e) is m = " << finalm_max << " and b =" << finalb_max << " at " << tempmaxVal << " purity*eff" << endl; 
-    cout << "The best fit value for the background(e) is m = " << finalm_min << " and b =" << finalb_min << " at " << tempminVal << " purity*eff" << endl; 
+    //cout << "The best fit value for the signal(non-e) is m = " << finalm_max << " and b =" << finalb_max << " at " << tempmaxVal << " purity*eff" << endl; 
+    //cout << "The best fit value for the background(e) is m = " << finalm_min << " and b =" << finalb_min << " at " << tempminVal << " purity*eff" << endl; 
     delete temph1;
     delete temph2;
-    TCanvas *tempcanvas = new TCanvas();
-    pureff_2Dhist_Sig->Draw("colz");
-    tempcanvas->SaveAs("Signal.png");
+    //TCanvas *tempcanvas = new TCanvas();
+    //pureff_2Dhist_Sig->Draw("colz");
+    //tempcanvas->SaveAs("Signal.png");
 }
 
 void FindMaxPurityEfficiency(TGraph* graph, TGraph* graph_OP, Double_t rejectionRate, Double_t& maxVal, Double_t& finalEff, Double_t& finalm, Double_t& finalb, bool& success) {
@@ -275,4 +275,170 @@ void FindMaxPurityEfficiency(TGraph* graph, TGraph* graph_OP, Double_t rejection
     delete pureff_2Dhist_Sig;
 }
 
+void FindAllEfficiencyWithRejectionRate(TGraph* graph, TGraph* graph_OP, Double_t rejectionRate, Int_t runNumber, Int_t momentum, std::ofstream& outputFile) {
+    const Int_t numPoints = 50;
+    TH2D* pureff_2Dhist_Bg = nullptr;
+    TH2D* pureff_2Dhist_Sig = nullptr;
+
+    // Generate histograms and fill them
+    GenerateHistograms(graph, graph_OP, pureff_2Dhist_Bg, pureff_2Dhist_Sig, numPoints);
+
+    // Calculate the efficiency threshold from rejectionRate
+    Double_t efficiencyThreshold = 1.0 / rejectionRate;
+    Double_t efficiencyThreshold2 = 1.0/(rejectionRate*1.1);
+
+    // Arrays to hold the m and b values
+    Double_t mVal[numPoints];
+    Double_t bVal[numPoints];
+
+    // Generate m values from -1 to -0.001
+    for (Int_t i = 0; i < numPoints; ++i) {
+        mVal[i] = -1.0 + i * (0.999 / (numPoints - 1));
+    }
+
+    // Generate b values from 0.01 to 0.35
+    for (Int_t i = 0; i < numPoints; ++i) {
+        bVal[i] = 0.01 + i * (0.35 - 0.01) / (numPoints - 1);
+    }
+
+    // Loop through the background histogram and remove bins in the signal histogram
+    for (Int_t i = 1; i <= pureff_2Dhist_Bg->GetNbinsX(); ++i) {
+        for (Int_t j = 1; j <= pureff_2Dhist_Bg->GetNbinsY(); ++j) {
+            Double_t bgContent = pureff_2Dhist_Bg->GetBinContent(i, j);
+            if (bgContent > efficiencyThreshold || bgContent < efficiencyThreshold2) {
+                pureff_2Dhist_Sig->SetBinContent(i, j, 0); // Zero out bins that do not respect the threshold
+            } 
+            else {
+                Double_t sigContent = pureff_2Dhist_Sig->GetBinContent(i, j);
+                Double_t rejectionRateFound = 1.0 / bgContent;
+                Double_t finalm = mVal[i - 1];
+                Double_t finalb = bVal[j - 1];
+
+                // Write to the output file
+                outputFile << sigContent << ", " << rejectionRateFound << ", " << finalm << ", " << finalb << "\n";
+            }    
+        }
+    }
+
+    // Clean up
+    //delete pureff_2Dhist_Bg;
+    TCanvas* canvas = new TCanvas("canvas", "canvas", 800, 600);
+    canvas->cd();
+    pureff_2Dhist_Sig->SetStats(kFALSE);
+    pureff_2Dhist_Sig->Draw("colz");
+    canvas->Update();
+    canvas->SaveAs(Form("ACT_EffResults%i.png",runNumber));
+}
+
+void FindAllRejectionRateWithEfficiency(TGraph* graph, TGraph* graph_OP, Double_t efficiencyThreshold, Int_t runNumber, Int_t momentum, std::ofstream& outputFile) {
+    const Int_t numPoints = 50;
+    TH2D* pureff_2Dhist_Bg = nullptr;
+    TH2D* pureff_2Dhist_Sig = nullptr;
+
+    // Generate histograms and fill them
+    GenerateHistograms(graph, graph_OP, pureff_2Dhist_Bg, pureff_2Dhist_Sig, numPoints);
+
+    // Calculate the efficiency threshold from rejectionRate
+    Double_t efficiencyThreshold2 = efficiencyThreshold*1.1;
+
+    // Arrays to hold the m and b values
+    Double_t mVal[numPoints];
+    Double_t bVal[numPoints];
+
+    // Generate m values from -1 to -0.001
+    for (Int_t i = 0; i < numPoints; ++i) {
+        mVal[i] = -1.0 + i * (0.999 / (numPoints - 1));
+    }
+
+    // Generate b values from 0.01 to 0.35
+    for (Int_t i = 0; i < numPoints; ++i) {
+        bVal[i] = 0.01 + i * (0.35 - 0.01) / (numPoints - 1);
+    }
+
+    // Loop through the signal histogram and remove bins in the background histogram
+    for (Int_t i = 1; i <= pureff_2Dhist_Sig->GetNbinsX(); ++i) {
+        for (Int_t j = 1; j <= pureff_2Dhist_Sig->GetNbinsY(); ++j) {
+            Double_t sigContent = pureff_2Dhist_Sig->GetBinContent(i, j);
+            if (sigContent < efficiencyThreshold || sigContent > efficiencyThreshold2) {
+                pureff_2Dhist_Bg->SetBinContent(i, j, 0); // Zero out bins that do not respect the threshold
+            } 
+            else {
+                Double_t bgContent = pureff_2Dhist_Bg->GetBinContent(i, j);
+                Double_t rejectionRateFound = 1.0 / bgContent;
+                Double_t finalm = mVal[i - 1];
+                Double_t finalb = bVal[j - 1];
+
+                // Write to the output file
+                outputFile << sigContent << ", " << rejectionRateFound << ", " << finalm << ", " << finalb << "\n";
+            }    
+        }
+    }
+
+    // Clean up
+    //delete pureff_2Dhist_Sig;
+    TCanvas* canvas = new TCanvas("canvas", "canvas", 800, 600);
+    canvas->cd();
+    pureff_2Dhist_Bg->SetStats(kFALSE);
+    pureff_2Dhist_Bg->Draw("colz");
+    canvas->Update();
+    //canvas->SaveAs(Form("ACT_EffResults%i.png",runNumber));
+}
+
+
+
+void calculateAveragesFromFile(Double_t &avgSignalEff, Double_t &avgRejectionRate, Double_t &avgFinalM, Double_t &avgFinalB){
+    // Open the file for reading
+    std::ifstream inputFile("ACTSingleResults.txt");
+    double sumSignalEff = 0.0;
+    double sumRejectionRate = 0.0;
+    double sumFinalM = 0.0;
+    double sumFinalB = 0.0;
+    int count = 0;
+
+    std::string line;
+
+    // Skip the header lines
+    std::getline(inputFile, line); // Skip first header line
+    std::getline(inputFile, line); // Skip second header line (if applicable)
+
+    // Process each line
+    while (std::getline(inputFile, line)) {
+        std::stringstream ss(line);
+        std::string item;
+        std::vector<std::string> tokens;
+
+        // Split the line by commas
+        while (std::getline(ss, item, ',')) {
+            tokens.push_back(item);
+        }
+
+        if (tokens.size() < 4) {
+            continue;  // Skip lines that do not have enough columns
+        }
+
+        try {
+            double signalEff = std::stod(tokens[0]);
+            double rejectionRate = std::stod(tokens[1]);
+            double finalM = std::stod(tokens[2]);
+            double finalB = std::stod(tokens[3]);
+
+            // Accumulate sums
+            sumSignalEff += signalEff;
+            sumRejectionRate += rejectionRate;
+            sumFinalM += finalM;
+            sumFinalB += finalB;
+
+            // Increment count
+            count++;
+        } 
+        catch (const std::invalid_argument&) {
+            std::cerr << "Skipping invalid line: " << line << std::endl;
+        }
+    }
+    inputFile.close();
+    avgSignalEff = sumSignalEff / count;
+    avgRejectionRate = sumRejectionRate / count;
+    avgFinalM = sumFinalM / count;
+    avgFinalB = sumFinalB / count;
+}
 #endif // FUNCTIONS_H

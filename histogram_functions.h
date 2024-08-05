@@ -1135,6 +1135,62 @@ TGraph* Make2DHist0vs1(TCanvas *canvas, TGraph *graph, TTree *trees[], initializ
 
 }
 
+void Make1DTOFPlot(TCanvas *canvas, TH1F *hist, TTree *trees[], initializer_list<const char*> branches, Int_t runNumber){
+        // Calculate total number of trees in the array
+    Int_t totalIndex = 0;
+    while (trees[totalIndex] != nullptr) {
+        totalIndex++;
+    }
+
+    // Initialize and set up branches and branch values
+    vector<const char*> allBranches;
+    Int_t combinedSize = CalcCombinedSize(branches, allBranches, totalIndex);
+
+    Double_t branchVal[combinedSize][20];
+    Int_t nPeaks[totalIndex];
+    Double_t WWI[totalIndex];
+    Int_t nWindowPeak;
+
+    InitializeBranchVal(branchVal, combinedSize);
+
+    SetupRootTreesAddress(trees, totalIndex, combinedSize, branches, allBranches, branchVal, nPeaks, WWI, nWindowPeak);    Long64_t numEntries = trees[0]->GetEntries();
+    Double_t xvalue;
+    Double_t yvalue;
+    for (Long64_t entry = 0; entry < numEntries; ++entry) {
+        // Check if all nPeaks values are 1 for the current entry
+        bool allPeaksOne = true;
+        for (Int_t treeIdx = 0; treeIdx < totalIndex; ++treeIdx){
+            trees[treeIdx]->GetEntry(entry);
+            if (treeIdx == 8) {
+                continue; // Skip for PbGlass
+            }
+            if (nPeaks[treeIdx] != 1) {
+                allPeaksOne = false;
+                break;
+            }
+        }
+        if (allPeaksOne && nWindowPeak==1){
+            Double_t sumTOF1 = 0.0, sumTOF0 = 0.0, WWI_avg=0.0; //WWI = WholeWaveformInt
+            Double_t PbGlassPEVal;
+            PbGlassPEVal = branchVal[totalIndex*1+8][0];
+            for (Int_t i=0; i<4; ++i){
+                sumTOF1 += branchVal[totalIndex * 0 + (i + 4)][0];
+                sumTOF0 += branchVal[totalIndex * 0 + i][0];
+                WWI_avg += WWI[i]+WWI[i+4];
+            }
+            Double_t avgTOF1 = sumTOF1/4;
+            Double_t avgTOF0 = sumTOF0/4;
+            Double_t finalTOF = avgTOF1-avgTOF0;
+            WWI_avg /=8;
+
+            hist->Fill(finalTOF);
+        }
+    }
+    canvas->cd();
+    canvas->SetLogy();
+    hist->Draw();
+    canvas->SaveAs(Form("test%i.jpg",runNumber));
+}
 
 // Define a map for run numbers based on pVal
 std::map<Double_t, TString> runNumbers = {
@@ -1561,4 +1617,135 @@ void Draw5GraphComp(TGraph *graph, TGraph *graph_OP, Int_t IndexArr[5], Double_t
     delete canvas;
 }
 
+void Draw2500PointWithResults(TGraph *graph, TGraph *graph_OP, Double_t mom, const char* htype, Double_t Threshold, Bool_t useElectronThreshold = true){
+    TCanvas *canvas = new TCanvas("c","title",800,600);
+
+    const Int_t numPoints = 50;
+    TH2D* pureff_2Dhist_Bg2 = nullptr;
+    TH2D* pureff_2Dhist_Sig2 = nullptr;
+    GenerateHistograms(graph, graph_OP, pureff_2Dhist_Bg2, pureff_2Dhist_Sig2, numPoints);
+
+    TGraph *final_graph = new TGraph();
+    final_graph->SetTitle(Form("Electron rejection and non-e efficiency graph with all possible cuts p=%.2fGeV",mom));
+    final_graph->GetYaxis()->SetTitle("electron rejection"); 
+    final_graph->GetYaxis()->SetRangeUser(1,300);
+    final_graph->GetXaxis()->SetRangeUser(0,1);
+    final_graph->GetXaxis()->SetTitle("non-electron eff");
+    Int_t Counter = 0;
+    for(Int_t i=0; i<50; i++){
+        for(Int_t j=1; j<=50; j++){
+            Double_t eff_bg = pureff_2Dhist_Bg2->GetBinContent(i+1, j);
+            Double_t eff_sig = pureff_2Dhist_Sig2->GetBinContent(i+1, j);
+            final_graph->SetPoint(Counter, eff_sig, 1/eff_bg);
+            Counter++;
+        }
+    }
+    Double_t avgSig, avgRejection, avgM, avgB;
+    calculateAveragesFromFile(avgSig,avgRejection,avgM,avgB);
+   
+    cout << "Final b and m are " << avgB << " and " << avgM << endl;
+    TLine* line1 = new TLine();
+    TLine* line2 = new TLine();
+
+    if(useElectronThreshold){
+        line1->SetX1(0);
+        line1->SetX2(1);
+        line1->SetY1(Threshold);
+        line1->SetY2(Threshold);
+        line1->SetLineStyle(2);  // Dashed line
+        line1->SetLineColor(kRed);
+        line2->SetX1(0);
+        line2->SetX2(1);
+        line2->SetY1(Threshold*1.1);
+        line2->SetY2(Threshold*1.1);    
+        line2->SetLineStyle(2);  // Dashed line
+        line2->SetLineColor(kRed);
+    }
+    else{
+        line1->SetX1(Threshold);
+        line1->SetX2(Threshold);
+        line1->SetY1(1);
+        line1->SetY2(300);
+        line1->SetLineStyle(2);  // Dashed line
+        line1->SetLineColor(kRed);
+     
+        line2->SetX1(Threshold*1.1);
+        line2->SetX2(Threshold*1.1);
+        line2->SetY1(1);
+        line2->SetY2(300);    
+        line2->SetLineStyle(2);  // Dashed line
+        line2->SetLineColor(kRed);
+    }
+
+    TMarker* marker = new TMarker(avgSig, avgRejection, kFullCircle); // Coordinates and marker type
+    marker->SetMarkerSize(2); // Marker size
+    marker->SetMarkerColor(kRed); // Marker color
+
+    canvas->SetLogy();
+    canvas->cd();
+    final_graph->SetMarkerStyle(kFullStar);
+    final_graph->SetMarkerSize(0.4);
+
+    final_graph->Draw("AP");
+    line1->Draw("SAME");
+    line2->Draw("SAME");
+    marker->Draw("SAME"); 
+    canvas->Update();
+    canvas->SaveAs(Form("graphjpg/ResultsAllPoints%s%.2f.png",htype,mom));
+    delete pureff_2Dhist_Bg2;
+    delete pureff_2Dhist_Sig2;
+    delete canvas;
+}
+
+void Draw2500Point(TGraph *graph, TGraph *graph_OP, Double_t mom, const char* htype, Bool_t UseRejection = true){
+    TCanvas *canvas = new TCanvas("c","title",800,600);
+
+    const Int_t numPoints = 50;
+    TH2D* pureff_2Dhist_Bg = nullptr;
+    TH2D* pureff_2Dhist_Sig = nullptr;
+    GenerateHistograms(graph, graph_OP, pureff_2Dhist_Bg, pureff_2Dhist_Sig, numPoints);
+
+    TGraph *final_graph = new TGraph();
+    if(UseRejection){
+        final_graph->SetTitle(Form("Electron rejection and non-e efficiency graph with all possible cuts p=%.2fGeV",mom));
+        final_graph->GetYaxis()->SetTitle("electron rejection"); 
+        final_graph->GetYaxis()->SetRangeUser(1,300);
+    }
+    else{
+        final_graph->SetTitle(Form("Electron and non-e efficiency graph with all possible cuts p=%.2fGeV",mom));
+        final_graph->GetYaxis()->SetTitle("electron eff");
+    }
+    final_graph->GetXaxis()->SetTitle("non-electron eff");
+    Int_t Counter = 0;
+    for(Int_t i=0; i<50; i++){
+        for(Int_t j=1; j<=50; j++){
+            Double_t eff_bg = pureff_2Dhist_Bg->GetBinContent(i+1, j);
+            Double_t eff_sig = pureff_2Dhist_Sig->GetBinContent(i+1, j);
+            if(UseRejection){
+                final_graph->SetPoint(Counter, eff_sig, 1/eff_bg);
+            }
+            else{
+                final_graph->SetPoint(Counter, eff_sig, eff_bg);
+            }
+            Counter++;
+        }
+    }
+    if(UseRejection){
+        canvas->SetLogy();
+    }
+    canvas->cd();
+    final_graph->SetMarkerStyle(kFullStar);
+    final_graph->SetMarkerSize(0.4);
+
+    final_graph->GetXaxis()->SetRangeUser(0,1);
+    final_graph->GetYaxis()->SetRangeUser(0,1);
+    final_graph->Draw("AP");
+    
+    canvas->Update();
+    canvas->SaveAs(Form("graphjpg/AllPoints%s%.2f.png",htype,mom));
+    delete pureff_2Dhist_Bg;
+    delete pureff_2Dhist_Sig;
+    delete canvas;
+
+}
 #endif // HISTOGxRAM_FUNCTIONS_H
